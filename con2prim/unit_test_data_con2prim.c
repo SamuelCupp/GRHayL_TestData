@@ -47,14 +47,14 @@ int main(int argc, char **argv) {
   double Psi6threshold = 1e100; //Taken from magnetizedTOV.par
   int update_Tmunu = 1; //IGM default
 
-  int eos_type = 0; // Hybrid=0, Tabulated=1;
   int neos = 1;
   double W_max = 10.0; //IGM default
+  double rho_b_min = 1e-12;
   double rho_b_max = 1e300; //IGM default
-  double gamma_th = 2.0; //Taken from magnetizedTOV.par
-  double rho_tab[1] = {0.0};
-  double gamma_tab[1] = {2.0};
-  double k_tab = 1.0;
+  double Gamma_th = 2.0; //Taken from magnetizedTOV.par
+  double rho_ppoly[1] = {0.0};
+  double Gamma_ppoly[1] = {2.0};
+  double k_ppoly0 = 1.0;
 
   // Here, we initialize the structs that are (usually) static during
   // a simulation.
@@ -62,18 +62,10 @@ int main(int argc, char **argv) {
   initialize_GRHayL(None, backup_routine, false /*evolve entropy*/, false /*evolve temperature*/, calc_prims_guess, Psi6threshold, update_Tmunu, 1 /*Cupp Fix*/, &params);
 
   eos_parameters eos;
-  initialize_general_eos(eos_type, W_max,
-             test_rho_min, test_rho_min, rho_b_max,
-             &eos);
-
-  initialize_hybrid_functions(&eos);
-
-  initialize_hybrid_eos(neos, rho_tab,
-             gamma_tab, k_tab, gamma_th,
-             &eos);
-
-  con2prim_diagnostics diagnostics;
-  initialize_diagnostics(&diagnostics);
+  initialize_hybrid_eos_functions_and_params(W_max,
+                                             rho_b_min, rho_b_min, rho_b_max,
+                                             neos, rho_ppoly, Gamma_ppoly,
+                                             k_ppoly0, Gamma_th, &eos);
 
   // We will be performing the tabulated EOS test in the following way:
   //
@@ -106,117 +98,146 @@ int main(int argc, char **argv) {
     params.main_routine = con2prim_test_keys[which_routine];
 
     int failures = 0;
-    for(int rand=0;rand<2;rand++) {
+    for(int perturb=0;perturb<2;perturb++) {
 
       double rand_val[13];
-      char suffix[10] = "norm";
-      if(rand==1) {
+      char suffix[10] = "";
+      if(perturb==1) {
         srand(1000000);
-        sprintf(suffix, "rand");
+        sprintf(suffix, "_pert");
         for(int i=0;i<13;i++) rand_val[i] = 1.0 + randf(-1,1)*1.0e-14;
       }
 
-      printf("Beginning %s test for routine %s\n", suffix, con2prim_test_names[which_routine]);
+      FILE* initial_data;
+      FILE* outfiles[5];
 
-      FILE* outfiles[7];
+      if (!perturb) {
+        printf("Beginning standard data generation for routine %s\n", con2prim_test_names[which_routine]);
+        sprintf(filename,"%.30s_initial_data.bin", con2prim_test_names[which_routine]);
+        initial_data = fopen(filename,"wb");
+        check_file_was_successfully_open(initial_data, filename);
+      } else {
+        printf("Beginning perturbed data generation for routine %s\n", con2prim_test_names[which_routine]);
+      }
 
-      sprintf(filename,"C2P_%.30s_%.4s_limit_v_and_output_u0.bin",con2prim_test_names[which_routine], suffix);
+
+      sprintf(filename,"apply_inequality_fixes%.5s.bin", suffix);
       outfiles[0] = fopen(filename,"wb");
       check_file_was_successfully_open(outfiles[0], filename);
 
-      sprintf(filename,"C2P_%.30s_%.4s_apply_inequality_fixes.bin",con2prim_test_names[which_routine], suffix);
+      sprintf(filename,"%.30s_Hybrid_Multi_Method%.5s.bin", con2prim_test_names[which_routine], suffix);
       outfiles[1] = fopen(filename,"wb");
       check_file_was_successfully_open(outfiles[1], filename);
 
-      sprintf(filename,"C2P_%.30s_%.4s_Hybrid_Multi_Method.bin",con2prim_test_names[which_routine], suffix);
+      sprintf(filename,"font_fix%.5s.bin", suffix);
       outfiles[2] = fopen(filename,"wb");
       check_file_was_successfully_open(outfiles[2], filename);
 
-      sprintf(filename,"C2P_%.30s_%.4s_font_fix.bin",con2prim_test_names[which_routine], suffix);
+      sprintf(filename,"enforce_primitive_limits_and_output_u0%.5s.bin", suffix);
       outfiles[3] = fopen(filename,"wb");
       check_file_was_successfully_open(outfiles[3], filename);
 
-      sprintf(filename,"C2P_%.30s_%.4s_enforce_primitive_limits_and_output_u0.bin",con2prim_test_names[which_routine], suffix);
+      sprintf(filename,"compute_conservs_and_Tmunu%.5s.bin", suffix);
       outfiles[4] = fopen(filename,"wb");
       check_file_was_successfully_open(outfiles[4], filename);
 
-      sprintf(filename,"C2P_%.30s_%.4s_compute_conservs.bin",con2prim_test_names[which_routine], suffix);
-      outfiles[5] = fopen(filename,"wb");
-      check_file_was_successfully_open(outfiles[5], filename);
-
-      sprintf(filename,"C2P_%.30s_%.4s_compute_Tmunu.bin",con2prim_test_names[which_routine], suffix);
-      outfiles[6] = fopen(filename,"wb");
-      check_file_was_successfully_open(outfiles[6], filename);
-
       srand(0);
 
-      for(int i=0;i<npoints;i++) { // Density loop
-        double xrho  = exp(lrmin + dlr*i);
+      for(int j=0;j<npoints;j++) { // Density loop
+        const double xrho  = exp(lrmin + dlr*j);
         double P_cold = 0.0;
-        eos.hybrid_compute_P_cold(&eos, xrho, &P_cold);
+        double eps_cold = 0.0;
+        eos.hybrid_compute_P_cold_and_eps_cold(&eos, xrho, &P_cold, &eps_cold);
 
         // Compute the pressure step size
         const double lpmin        = log(1.0e-30);//-P_cold);
         const double lpmax        = log(10.0*P_cold);
         const double dlp          = (lpmax - lpmin)/(npoints-1);
-        for(int j=0;j<npoints;j++) { // Pressure loop
+        for(int i=0;i<npoints;i++) { // Pressure loop
           // Start by setting the prims (rho,Ye,T,P,eps)
-          //double xtemp = exp(ltmin + dlt*j);
+          //double xtemp = exp(ltmin + dlt*i);
           //double xye   = Ye_test;
-          double xpress  = exp(lpmin + dlp*j);
+          const double xpress  = exp(lpmin + dlp*i);
           //WVU_EOS_P_and_eps_from_rho_Ye_T( xrho,xye,xtemp, &xpress,&xeps );
 
           // Define the various GRHayL structs for the unit tests
+          con2prim_diagnostics diagnostics;
+          initialize_diagnostics(&diagnostics);
           metric_quantities metric;
-          primitive_quantities prims, prims_orig, prims_guess;
-          conservative_quantities cons, cons_orig, cons_undens;
-          stress_energy Tmunu, Tmunu_orig;
-
-          // Leo says: Initialize cons_orig to silence warning; remove later.
-          cons_orig.rho = 1e300;
-          cons_orig.S_x = 1e300;
-          cons_orig.S_y = 1e300;
-          cons_orig.S_z = 1e300;
+          primitive_quantities prims, prims_guess;
+          conservative_quantities cons, cons_undens;
+          stress_energy Tmunu;
 
           // Generate random data to serve as the 'true' primitive values
           initial_random_data(xrho, xpress, &metric, &prims);
 
           double u0 = poison;
-          prims_orig = prims;
           limit_v_and_output_u0(&eos, &metric, &prims, &u0, &diagnostics);
-          write_primitive_binary(eos.eos_type, 1, params.evolve_entropy, &prims_orig, &prims, outfiles[0]);
+
+          // We need epsilon to compute the enthalpy in compute_conservs_and_Tmunu;
+          // This normally happens in the enforce_primitive_limits_and_output_u0 function
+          prims.eps = eps_cold + (prims.press-P_cold)/(eos.Gamma_th-1.0)/prims.rho;
 
           // Compute conservatives based on these primitives
           compute_conservs_and_Tmunu(&params, &eos, &metric, &prims, u0, &cons, &Tmunu);
 
           //This is meant to simulate some round-off error that deviates from the "true" values that we just computed.
-          if(rand) perturb_data(rand_val, &prims, &cons);
+          if(perturb) perturb_data(rand_val, &prims, &cons);
+
+          if(!perturb)
+            write_metric_binary(&metric, initial_data);
 
           int check = 0;
           if(cons.rho > 0.0) {
 
             //This applies the inequality (or "Faber") fixes on the conservatives
             if(eos.eos_type == 0) { //Hybrid-only
-              cons_orig = cons;
+              if(!perturb && con2prim_test_keys[which_routine] == Noble2D) {
+                write_primitive_binary(eos.eos_type, params.evolve_entropy, &prims, outfiles[0]);
+                write_conservative_binary(params.evolve_entropy, &cons, outfiles[0]);
+              }
               apply_inequality_fixes(&params, &eos, &metric, &prims, &cons, &diagnostics);
-              write_conservative_binary(params.evolve_entropy, &cons_orig, &cons, outfiles[1]);
+              if(con2prim_test_keys[which_routine] == Noble2D)
+                write_conservative_binary(params.evolve_entropy, &cons, outfiles[0]);
             }
 
+            if(!perturb) {
+              write_primitive_binary(eos.eos_type, params.evolve_entropy, &prims, outfiles[1]);
+              write_conservative_binary(params.evolve_entropy, &cons, outfiles[1]);
+            }
             // The Con2Prim routines require the undensitized variables, but IGM evolves the densitized variables.
             undensitize_conservatives(&metric, &cons, &cons_undens);
 
             /************* Conservative-to-primitive recovery ************/
-            prims_orig = prims;
             check = Hybrid_Multi_Method(&params, &eos, &metric, &cons_undens, &prims, &prims_guess, &diagnostics);
-            write_primitive_binary(eos.eos_type, 0, params.evolve_entropy, &prims_orig, &prims_guess, outfiles[2]);
+            // If the returned value is 5, then the Newton-Rapson method converged, but the values were so small
+            // that u or rho were negative (usually u). Since the method converged, we only need to fix the values
+            // using enforce_primitive_limits_and_output_u0(). There's no need to trigger a Font fix.
+            if(check==5) check = 0;
 
+            write_primitive_binary(eos.eos_type, params.evolve_entropy, &prims_guess, outfiles[1]);
+
+            if(con2prim_test_keys[which_routine] != Noble2D) continue;
+
+            // Technically, font fix only needs the B values from prims; could reduce output by
+            // only writing B's instead of all prims
             if(check!=0) {
-              check = font_fix(&eos, &metric, &cons, &prims, &prims_guess, &diagnostics);
-              write_primitive_binary(eos.eos_type, 0, params.evolve_entropy, &prims_orig, &prims_guess, outfiles[3]);
+              if(perturb == 0 && con2prim_test_keys[which_routine] == Noble2D) {
+                write_primitive_binary(eos.eos_type, params.evolve_entropy, &prims, outfiles[2]);
+                write_conservative_binary(params.evolve_entropy, &cons, outfiles[2]);
+              }
+              check = font_fix(&params, &eos, &metric, &cons, &prims, &prims_guess, &diagnostics);
+              if(con2prim_test_keys[which_routine] == Noble2D)
+                write_primitive_binary(eos.eos_type, params.evolve_entropy, &prims_guess, outfiles[2]);
             } else { //The else is so that Font Fix is tested even when the primary routine succeeds.
               primitive_quantities prims_tmp;
-              check = font_fix(&eos, &metric, &cons, &prims, &prims_tmp, &diagnostics);
-              write_primitive_binary(eos.eos_type, 0, params.evolve_entropy, &prims_orig, &prims_tmp, outfiles[3]);
+              if(!perturb && con2prim_test_keys[which_routine] == Noble2D) {
+                write_primitive_binary(eos.eos_type, params.evolve_entropy, &prims, outfiles[2]);
+                write_conservative_binary(params.evolve_entropy, &cons, outfiles[2]);
+              }
+              check = font_fix(&params, &eos, &metric, &cons, &prims, &prims_tmp, &diagnostics);
+              if(con2prim_test_keys[which_routine] == Noble2D)
+                write_primitive_binary(eos.eos_type, params.evolve_entropy, &prims_tmp, outfiles[2]);
             }
 
             /*************************************************************/
@@ -228,7 +249,7 @@ int main(int argc, char **argv) {
             }
           } else {
             diagnostics.failure_checker+=1;
-            reset_prims_to_atmosphere(&params, &eos, &metric, &prims, &diagnostics);
+            reset_prims_to_atmosphere(&params, &eos, &metric, &prims);
             //TODO: Validate reset? (rhob press v)
             printf("Negative rho_* triggering atmospheric reset.\n");
           } // if rho_star > 0
@@ -237,26 +258,35 @@ int main(int argc, char **argv) {
           //---------- Primitive recovery completed ----------
           //--------------------------------------------------
           // Enforce limits on primitive variables and recompute conservatives.
-          prims_orig = prims;
+          if(!perturb && con2prim_test_keys[which_routine] == Noble2D) {
+            write_primitive_binary(eos.eos_type, params.evolve_entropy, &prims, outfiles[3]);
+          }
           enforce_primitive_limits_and_output_u0(&params, &eos, &metric, &prims, &u0, &diagnostics);
-          write_primitive_binary(eos.eos_type, 0, params.evolve_entropy, &prims_orig, &prims, outfiles[4]);
+          if(con2prim_test_keys[which_routine] == Noble2D)
+          write_primitive_binary(eos.eos_type, params.evolve_entropy, &prims, outfiles[3]);
+          fwrite(&u0, sizeof(double), 1, outfiles[3]);
 
-          cons_orig = cons;
-          Tmunu_orig = Tmunu;
+          if(!perturb && con2prim_test_keys[which_routine] == Noble2D) {
+            write_primitive_binary(eos.eos_type, params.evolve_entropy, &prims, outfiles[4]);
+            fwrite(&u0, sizeof(double), 1, outfiles[4]);
+          }
           compute_conservs_and_Tmunu(&params, &eos, &metric, &prims, u0, &cons, &Tmunu);
-          write_conservative_binary(params.evolve_entropy, &cons_orig, &cons, outfiles[5]);
-          write_stress_energy_binary(&Tmunu_orig, &Tmunu, outfiles[6]);
+          if(con2prim_test_keys[which_routine] == Noble2D) {
+            write_conservative_binary(params.evolve_entropy, &cons, outfiles[4]);
+            write_stress_energy_binary(&Tmunu, outfiles[4]);
+          }
 
           if( check != 0 )
             failures++;
         } // Pressure loop
       } // Density loop
       for(int k = 0; k < (sizeof(outfiles)/sizeof(outfiles[0])); k++) fclose(outfiles[k]);
+      if(!perturb) fclose(initial_data);
     } // perturbation loop
 
     int ntotal = npoints*npoints;
 
-    printf("Completed test for routine %s\n",con2prim_test_names[which_routine]);
+    printf("Completed data generation for routine %s\n",con2prim_test_names[which_routine]);
     printf("Final report:\n");
     printf("    Number of recovery attempts: %d\n",ntotal);
     printf("    Number of failed recoveries: %d\n",failures);
