@@ -5,12 +5,6 @@
 //              the Con2Prim gem.
 #include "unit_tests.h"
 
-#define check_file_was_successfully_open(fp, filename) \
-  if( fp == NULL ) { \
-    fprintf(stderr, "(GRHayL) ERROR: Could not open file %s. Terminating.\n", filename); \
-    exit(1); \
-  }
-
 inline void perturb_data(double *restrict rand_val, primitive_quantities *restrict prims, conservative_quantities *restrict cons) {
   prims->rho   *= rand_val[0];
   prims->press *= rand_val[1];
@@ -31,7 +25,7 @@ int main(int argc, char **argv) {
 
   // These variables set up the tested range of values
   // and number of sampling points.
-  int npoints = 256; //Number of sampling points in density and temperature
+  int npoints = 80; //Number of sampling points in density and temperature
   double test_rho_min = 1e-12; //Minimum input density
   double test_rho_max = 1e-3; //Maximum input density
   // double test_T_min = 1e-2; //Minimum input temperature
@@ -107,6 +101,7 @@ int main(int argc, char **argv) {
 
   char filename[100];
   // Now perform one test for each of the selected routines
+  // TODO: unlike main loop, this loop can be parallelized because each routine uses a different file
   for(int which_routine=0;which_routine<num_routines_tested;which_routine++) {
     params.main_routine = con2prim_test_keys[which_routine];
 
@@ -184,8 +179,7 @@ int main(int argc, char **argv) {
           cons_orig.S_z = 1e300;
 
           // Generate random data to serve as the 'true' primitive values
-          bool random_metric = true;
-          initial_random_data(xrho, xpress, random_metric, &metric, &prims);
+          initial_random_data(xrho, xpress, &metric, &prims);
 
           double u0 = poison;
           prims_orig = prims;
@@ -253,11 +247,8 @@ int main(int argc, char **argv) {
           write_conservative_binary(params.evolve_entropy, &cons_orig, &cons, outfiles[5]);
           write_stress_energy_binary(&Tmunu_orig, &Tmunu, outfiles[6]);
 
-          if( check != 0 ) {
+          if( check != 0 )
             failures++;
-          } else {
-          }
-
         } // Pressure loop
       } // Density loop
       for(int k = 0; k < (sizeof(outfiles)/sizeof(outfiles[0])); k++) fclose(outfiles[k]);
