@@ -10,8 +10,6 @@ int main(int argc, char **argv) {
   const int gauss_center = 10;
   const double dX[3] = {0.1, 0.1, 0.1};
 
-  const double Lorenz_damping_factor = 0.1;
-
   double *gupxx = (double*) malloc(sizeof(double)*arraylength);
   double *gupxy = (double*) malloc(sizeof(double)*arraylength);
   double *gupxz = (double*) malloc(sizeof(double)*arraylength);
