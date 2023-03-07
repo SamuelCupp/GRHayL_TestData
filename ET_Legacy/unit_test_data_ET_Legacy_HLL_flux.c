@@ -47,7 +47,7 @@ int main(int argc, char **argv) {
       for(int i=1; i<dirlength; i++) {
         const int index = indexf(dirlength,i,j,k);
 
-        phi_bssn[index] = randf(-10.0,10.0);
+        phi_bssn[index] = randf(0.0,5.0);
 
         for(int coord=0; coord<3; coord++) {
           Br[coord][index]  = randf(-1.0,1.0);
