@@ -48,6 +48,7 @@ int main(int argc, char **argv) {
 
   FILE* outfile = fopen("ET_Legacy_reconstruction_input.bin", "wb");
   check_file_was_successfully_open(outfile, "ET_Legacy_reconstruction_input.bin");
+  fwrite(&dirlength, sizeof(int), 1, outfile);
   fwrite(rho  , sizeof(double), arraylength, outfile);
   fwrite(press, sizeof(double), arraylength, outfile);
   fwrite(vx   , sizeof(double), arraylength, outfile);

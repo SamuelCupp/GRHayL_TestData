@@ -149,6 +149,7 @@ int main(int argc, char **argv) {
   FILE* input = fopen(filename,"wb");
   check_file_was_successfully_open(input, filename);
 
+  fwrite(&npoints, sizeof(int), 1, input);
   fwrite(gxx,   sizeof(double), arraylength, input);
   fwrite(gxy,   sizeof(double), arraylength, input);
   fwrite(gxz,   sizeof(double), arraylength, input);

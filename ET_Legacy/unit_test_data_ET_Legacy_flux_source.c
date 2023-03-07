@@ -123,6 +123,7 @@ int main(int argc, char **argv) {
 
   FILE* outfile = fopen("ET_Legacy_flux_source_input.bin", "wb");
   check_file_was_successfully_open(outfile, "ET_Legacy_flux_source_input.bin");
+  fwrite(&dirlength, sizeof(int), 1, outfile);
   fwrite(gxx,     sizeof(double), arraylength, outfile);
   fwrite(gxy,     sizeof(double), arraylength, outfile);
   fwrite(gxz,     sizeof(double), arraylength, outfile);

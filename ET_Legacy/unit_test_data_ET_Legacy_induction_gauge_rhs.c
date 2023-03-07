@@ -3,9 +3,8 @@
 int main(int argc, char **argv) {
 
 
-  const int gridmin     = 0;
-  const int gridmax     = 21;
-  const int arraylength = gridmax*gridmax*gridmax;
+  const int dirlength     = 21;
+  const int arraylength = dirlength*dirlength*dirlength;
 
   const int gauss_center = 10;
   const double dX[3] = {0.1, 0.1, 0.1};
@@ -49,10 +48,10 @@ int main(int argc, char **argv) {
   const double poison = 1e200;
   // This cannot be in parallel because the randomized quantities need to happen in the
   // same order every time.
-  for(int k=gridmin; k<gridmax; k++)
-    for(int j=gridmin; j<gridmax; j++)
-      for(int i=gridmin; i<gridmax; i++) {
-        const int index = indexf(gridmax,i,j,k);
+  for(int k=0; k<dirlength; k++)
+    for(int j=0; j<dirlength; j++)
+      for(int i=0; i<dirlength; i++) {
+        const int index = indexf(dirlength,i,j,k);
 
         metric_quantities metric;
         double agxx, agxy, agxz, agyy, agyz, agzz;
@@ -99,6 +98,7 @@ int main(int argc, char **argv) {
   FILE* outfile = fopen("ET_Legacy_induction_gauge_rhs_input.bin", "wb");
   check_file_was_successfully_open(outfile, "unit_test_ET_Legacy_induction_gauge_rhs_input.bin");
 
+  fwrite(&dirlength, sizeof(int), 1, outfile);
   fwrite(gupxx, sizeof(double), arraylength, outfile);
   fwrite(gupxy, sizeof(double), arraylength, outfile);
   fwrite(gupxz, sizeof(double), arraylength, outfile);
