@@ -71,6 +71,7 @@ int main(int argc, char **argv) {
   outfile = fopen("ET_Legacy_HLL_flux_input.bin", "wb");
   check_file_was_successfully_open(outfile, "ET_Legacy_HLL_flux_input.bin");
 
+  fwrite(&dirlength, sizeof(int), 1, outfile);
   fwrite(phi_bssn, sizeof(double), arraylength, outfile);
 
   for(int coord=0; coord<3; coord++) {
