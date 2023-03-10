@@ -39,7 +39,6 @@ int main(int argc, char **argv) {
   con2prim_test_keys[0] = Noble2D;
   sprintf(con2prim_test_names[0],"%s","Noble2D");
 
-  double poison = 1e200;
   // This section sets up the initial parameters that would normally
   // be provided by the simulation.
   int backup_routine[3] = {None,None,None};
@@ -81,6 +80,7 @@ int main(int argc, char **argv) {
   const double lrmax        = log(test_rho_max);
   const double dlr          = (lrmax - lrmin)/(npoints-1);
 
+  const double poison = 0.0/0.0;
   // Compute the temperature step size
   //const double ltmin        = log(test_T_min);
   //const double ltmax        = log(test_T_max);
@@ -96,31 +96,27 @@ int main(int argc, char **argv) {
   // TODO: unlike main loop, this loop can be parallelized because each routine uses a different file
   for(int which_routine=0;which_routine<num_routines_tested;which_routine++) {
     params.main_routine = con2prim_test_keys[which_routine];
+    FILE* initial_data;
+    sprintf(filename,"%.30s_initial_data.bin", con2prim_test_names[which_routine]);
+    initial_data = fopen(filename,"wb");
+    check_file_was_successfully_open(initial_data, filename);
+    fwrite(&npoints, sizeof(int), 1, initial_data);
 
     int failures = 0;
     for(int perturb=0;perturb<2;perturb++) {
 
       double rand_val[13];
       char suffix[10] = "";
-      if(perturb==1) {
+      if (!perturb) {
+        printf("Beginning standard data generation for routine %s\n", con2prim_test_names[which_routine]);
+      } else {
+        printf("Beginning perturbed data generation for routine %s\n", con2prim_test_names[which_routine]);
         srand(1000000);
         sprintf(suffix, "_pert");
         for(int i=0;i<13;i++) rand_val[i] = 1.0 + randf(-1,1)*1.0e-14;
       }
 
-      FILE* initial_data;
       FILE* outfiles[5];
-
-      if (!perturb) {
-        printf("Beginning standard data generation for routine %s\n", con2prim_test_names[which_routine]);
-        sprintf(filename,"%.30s_initial_data.bin", con2prim_test_names[which_routine]);
-        initial_data = fopen(filename,"wb");
-        check_file_was_successfully_open(initial_data, filename);
-      } else {
-        printf("Beginning perturbed data generation for routine %s\n", con2prim_test_names[which_routine]);
-      }
-
-
       sprintf(filename,"apply_inequality_fixes%.5s.bin", suffix);
       outfiles[0] = fopen(filename,"wb");
       check_file_was_successfully_open(outfiles[0], filename);
@@ -133,7 +129,7 @@ int main(int argc, char **argv) {
       outfiles[2] = fopen(filename,"wb");
       check_file_was_successfully_open(outfiles[2], filename);
 
-      sprintf(filename,"enforce_primitive_limits_and_output_u0%.5s.bin", suffix);
+      sprintf(filename,"enforce_primitive_limits_and_compute_u0%.5s.bin", suffix);
       outfiles[3] = fopen(filename,"wb");
       check_file_was_successfully_open(outfiles[3], filename);
 
@@ -169,17 +165,33 @@ int main(int argc, char **argv) {
           stress_energy Tmunu;
 
           // Generate random data to serve as the 'true' primitive values
-          initial_random_data(xrho, xpress, &metric, &prims);
+          // and a randomized metric
+          double lapse, betax, betay, betaz, gxx, gxy, gxz, gyy, gyz, gzz;
+          randomize_metric(&lapse, &gxx, &gxy, &gxz, &gyy, &gyz, &gzz, &betax, &betay, &betaz);
+    
+          double eps, vx, vy, vz, Bx, By, Bz;
+          randomize_primitives(&eos, xrho, xpress, &eps, &vx, &vy, &vz, &Bx, &By, &Bz);
 
-          double u0 = poison;
-          limit_v_and_output_u0(&eos, &metric, &prims, &u0, &diagnostics);
+      initialize_metric(lapse,
+                        gxx, gxy, gxz,
+                        gyy, gyz, gzz,
+                        betax, betay, betaz,
+                        &metric);
+
+      initialize_primitives(xrho, xpress, eps,
+                            vx, vy, vz,
+                            Bx, By, Bz,
+                            poison, poison, poison, // entropy, Y_e, temp
+                            &prims);
+
+          limit_v_and_compute_u0(&eos, &metric, &prims, &diagnostics);
 
           // We need epsilon to compute the enthalpy in compute_conservs_and_Tmunu;
-          // This normally happens in the enforce_primitive_limits_and_output_u0 function
+          // This normally happens in the enforce_primitive_limits_and_compute_u0 function
           prims.eps = eps_cold + (prims.press-P_cold)/(eos.Gamma_th-1.0)/prims.rho;
 
           // Compute conservatives based on these primitives
-          compute_conservs_and_Tmunu(&params, &eos, &metric, &prims, u0, &cons, &Tmunu);
+          compute_conservs_and_Tmunu(&params, &eos, &metric, &prims, &cons, &Tmunu);
 
           //This is meant to simulate some round-off error that deviates from the "true" values that we just computed.
           if(perturb) perturb_data(rand_val, &prims, &cons);
@@ -212,7 +224,7 @@ int main(int argc, char **argv) {
             check = Hybrid_Multi_Method(&params, &eos, &metric, &cons_undens, &prims, &prims_guess, &diagnostics);
             // If the returned value is 5, then the Newton-Rapson method converged, but the values were so small
             // that u or rho were negative (usually u). Since the method converged, we only need to fix the values
-            // using enforce_primitive_limits_and_output_u0(). There's no need to trigger a Font fix.
+            // using enforce_primitive_limits_and_compute_u0(). There's no need to trigger a Font fix.
             if(check==5) check = 0;
 
             write_primitive_binary(eos.eos_type, params.evolve_entropy, &prims_guess, outfiles[1]);
@@ -261,16 +273,16 @@ int main(int argc, char **argv) {
           if(!perturb && con2prim_test_keys[which_routine] == Noble2D) {
             write_primitive_binary(eos.eos_type, params.evolve_entropy, &prims, outfiles[3]);
           }
-          enforce_primitive_limits_and_output_u0(&params, &eos, &metric, &prims, &u0, &diagnostics);
+          enforce_primitive_limits_and_compute_u0(&params, &eos, &metric, &prims, &diagnostics);
           if(con2prim_test_keys[which_routine] == Noble2D)
           write_primitive_binary(eos.eos_type, params.evolve_entropy, &prims, outfiles[3]);
-          fwrite(&u0, sizeof(double), 1, outfiles[3]);
+          fwrite(&prims.u0, sizeof(double), 1, outfiles[3]);
 
           if(!perturb && con2prim_test_keys[which_routine] == Noble2D) {
             write_primitive_binary(eos.eos_type, params.evolve_entropy, &prims, outfiles[4]);
-            fwrite(&u0, sizeof(double), 1, outfiles[4]);
+            fwrite(&prims.u0, sizeof(double), 1, outfiles[4]);
           }
-          compute_conservs_and_Tmunu(&params, &eos, &metric, &prims, u0, &cons, &Tmunu);
+          compute_conservs_and_Tmunu(&params, &eos, &metric, &prims, &cons, &Tmunu);
           if(con2prim_test_keys[which_routine] == Noble2D) {
             write_conservative_binary(params.evolve_entropy, &cons, outfiles[4]);
             write_stress_energy_binary(&Tmunu, outfiles[4]);
@@ -281,8 +293,8 @@ int main(int argc, char **argv) {
         } // Pressure loop
       } // Density loop
       for(int k = 0; k < (sizeof(outfiles)/sizeof(outfiles[0])); k++) fclose(outfiles[k]);
-      if(!perturb) fclose(initial_data);
     } // perturbation loop
+    fclose(initial_data);
 
     int ntotal = npoints*npoints;
 
