@@ -273,7 +273,7 @@ int main(int argc, char **argv) {
           if(!perturb && con2prim_test_keys[which_routine] == Noble2D) {
             write_primitive_binary(eos.eos_type, params.evolve_entropy, &prims, outfiles[3]);
           }
-          enforce_primitive_limits_and_compute_u0(&params, &eos, &metric, &prims, &diagnostics);
+          enforce_primitive_limits_and_compute_u0(&params, &eos, &metric, &prims, &diagnostics.failure_checker);
           if(con2prim_test_keys[which_routine] == Noble2D)
           write_primitive_binary(eos.eos_type, params.evolve_entropy, &prims, outfiles[3]);
           fwrite(&prims.u0, sizeof(double), 1, outfiles[3]);
